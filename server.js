@@ -1,9 +1,11 @@
 require('dotenv').config();
 const express = require('express');
+const express = require('cors');
 const { chromium } = require('playwright');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
