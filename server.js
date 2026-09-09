@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const express = require('cors');
+const cors = require('cors');
 const { chromium } = require('playwright');
 const Anthropic = require('@anthropic-ai/sdk');
 
