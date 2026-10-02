@@ -7,16 +7,42 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
+
+app.use((req, res, next) => {
+  console.log(`[Solicitud] ${req.method} ${req.path}`);
+
+  res.on('finish', () => {
+    console.log(`[Respuesta] HTTP ${res.statusCode}`);
+  });
+
+  next();
+});
+
 app.post('/analyze', async (req, res) => {
   const { url } = req.body;
   const startTime = Date.now();
 
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
+  console.log('[Análisis] Iniciando navegador');
+
+const browser = await chromium.launch({ timeout: 30000 });
+
+console.log('[Análisis] Navegador iniciado');
+
+const page = await browser.newPage();
   const errors = [];
   page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
 
-  await page.goto(url, { waitUntil: 'load' });
+  console.log('[Análisis] Abriendo página');
+
+await page.goto(url, {
+  waitUntil: 'load',
+  timeout: 30000
+});
+
+console.log('[Análisis] Página cargada; revisando enlaces');
   const loadTime = Date.now() - startTime;
   const title = await page.title();
 
@@ -33,6 +59,7 @@ app.post('/analyze', async (req, res) => {
     }
   }
 
+  console.log('[Análisis] Revisión de enlaces terminada');
   await browser.close();
 
   const rawData = { url, title, loadTimeMs: loadTime, totalLinksFound: uniqueLinks.length, brokenLinks, consoleErrors: errors };
