@@ -21,17 +21,32 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post('/analyze', async (req, res) => {
-  const { url } = req.body;
+  let browser;
   const startTime = Date.now();
+  let url;
 
-  console.log('[Análisis] Iniciando navegador');
+  try {
+    const parsed = new URL(req.body?.url);
 
-const browser = await chromium.launch({ timeout: 30000 });
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('Protocolo inválido');
+    }
 
-console.log('[Análisis] Navegador iniciado');
+    url = parsed.href;
+  } catch {
+    return res.status(400).json({
+      error: 'Escribe una URL válida que comience con http:// o https://.'
+    });
+  }
 
-const page = await browser.newPage();
+  try {
+    console.log('[Análisis] Iniciando navegador');
+
+    browser = await chromium.launch({ timeout: 30000 });
+
+    console.log('[Análisis] Navegador iniciado');
+
+    const page = await browser.newPage();
   const errors = [];
   page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
 
@@ -60,7 +75,7 @@ console.log('[Análisis] Página cargada; revisando enlaces');
   }
 
   console.log('[Análisis] Revisión de enlaces terminada');
-  await browser.close();
+
 
   const rawData = { url, title, loadTimeMs: loadTime, totalLinksFound: uniqueLinks.length, brokenLinks, consoleErrors: errors };
 
@@ -125,12 +140,35 @@ const reportText = [
   'La ausencia de hallazgos no garantiza que el sitio esté libre de errores.'
 ].join('\n');
 
-res.json({
-  rawData: { ...rawData, checkedLinks },
-  reportType: 'rules',
-  aiReport: reportText
+    res.json({
+      rawData: { ...rawData, checkedLinks },
+      reportType: 'rules',
+      aiReport: reportText
+    });
+
+  } catch (err) {
+    console.error('[Análisis] Falló:', err);
+
+    const timeout = err.name === 'TimeoutError';
+
+    res.status(timeout ? 504 : 500).json({
+      error: timeout
+        ? 'Se agotó el tiempo al iniciar el navegador o abrir la página. Intenta nuevamente.'
+        : 'No se pudo analizar la página. Comprueba que abre en tu navegador e intenta nuevamente.'
+    });
+
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+        console.log('[Análisis] Navegador cerrado');
+      } catch (closeError) {
+        console.error('[Análisis] Error al cerrar:', closeError);
+      }
+    }
+  }
 });
-  });
 
-app.listen(3000, () => console.log('Servidor corriendo en puerto 3000'));
-
+app.listen(3000, () => {
+  console.log('Servidor corriendo en puerto 3000');
+});
