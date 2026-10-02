@@ -2,12 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { chromium } = require('playwright');
-const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 app.post('/analyze', async (req, res) => {
   const { url } = req.body;
@@ -39,19 +37,75 @@ app.post('/analyze', async (req, res) => {
 
   const rawData = { url, title, loadTimeMs: loadTime, totalLinksFound: uniqueLinks.length, brokenLinks, consoleErrors: errors };
 
-  // Interpretación con IA
-  const aiResponse = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 500,
-    messages: [{
-      role: 'user',
-      content: `Eres un auditor de QA. Con estos datos crudos de una auditoría web, genera un reporte breve en español con: 1) resumen general, 2) hallazgos críticos, 3) sugerencias. Datos: ${JSON.stringify(rawData)}`
-    }]
+  // Reporte automático sin IA
+const checkedLinks = uniqueLinks.slice(0, 20).length;
+
+const httpErrors = brokenLinks.filter(
+  item => typeof item.status === 'number'
+);
+
+const connectionErrors = brokenLinks.filter(
+  item => typeof item.status !== 'number'
+);
+
+const reportText = [
+  'REPORTE DE AUDITORÍA WEB',
+  'Generado mediante reglas automáticas, sin IA.',
+  '',
+  `Página: ${url}`,
+  `Título: ${title || 'Sin título'}`,
+  `Tiempo de apertura y navegación: ${(loadTime / 1000).toFixed(2)} segundos`,
+  '',
+  'ENLACES',
+  `Enlaces encontrados: ${uniqueLinks.length}`,
+  `Enlaces revisados: ${checkedLinks} (máximo 20)`,
+  `Respuestas HTTP de error: ${httpErrors.length}`,
+  `Enlaces sin comprobar: ${connectionErrors.length}`,
+  '',
+  'RESPUESTAS HTTP DE ERROR',
+  ...(httpErrors.length
+    ? httpErrors.map(item => `• HTTP ${item.status}: ${item.link}`)
+    : ['No se detectaron respuestas HTTP de error en los enlaces revisados.']),
+  '',
+  'ENLACES SIN COMPROBAR',
+  ...(connectionErrors.length
+    ? connectionErrors.map(item => `• ${item.link}: ${item.status}`)
+    : ['No hubo errores de conexión al comprobar los enlaces.']),
+  '',
+  'ERRORES DE CONSOLA',
+  ...(errors.length
+    ? errors.map(message => `• ${message}`)
+    : ['No se registraron errores de consola durante la navegación.']),
+  '',
+  'SUGERENCIAS',
+  ...(!title
+    ? ['• Agrega un título descriptivo a la página.']
+    : []),
+  ...(httpErrors.length
+    ? ['• Revisa las respuestas HTTP indicadas. Un 403 puede ser una restricción de acceso y un 429 un límite de solicitudes; no necesariamente son enlaces rotos.']
+    : []),
+  ...(connectionErrors.length
+    ? ['• Comprueba manualmente los enlaces sin respuesta: podrían tener problemas temporales o bloquear las consultas automáticas.']
+    : []),
+  ...(errors.length
+    ? ['• Revisa los errores de consola para identificar recursos o scripts que fallan.']
+    : []),
+  '• Complementa esta revisión con pruebas manuales de formularios, botones y navegación en celular.',
+  '',
+  'ALCANCE',
+  'Se revisó una página y hasta 20 de sus enlaces.',
+  'El tiempo mostrado incluye el arranque del navegador; no es una medición de Core Web Vitals.',
+  'La ausencia de hallazgos no garantiza que el sitio esté libre de errores.'
+].join('\n');
+
+res.json({
+  rawData: { ...rawData, checkedLinks },
+  reportType: 'rules',
+  aiReport: reportText
+});
   });
 
-  const reportText = aiResponse.content[0].text;
-
-  res.json({ rawData, aiReport: reportText });
+app.listen(3000, () => console.log('Servidor corriendo en puerto 3000'));
 });
 
 app.listen(3000, () => console.log('Servidor corriendo en puerto 3000'));
